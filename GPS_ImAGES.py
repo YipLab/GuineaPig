@@ -197,11 +197,14 @@ class DataAcqusition():
         """
         Private method to determine the Halfmax point
         """
-        if argMax < diffMaxes[0]:
-            return [float('nan'), float('nan')]
+        if diffMaxes.shape[0] > 0:
+            if argMax < diffMaxes[0]:
+                return [float('nan'), float('nan')];
+            else:
+                diffMax = np.max(diffMaxes[diffMaxes<argMax]); #Location of the POI
+                return [diffMax, Arr1D[argMax] - Arr1D[diffMax]];
         else:
-            diffMax = np.max(diffMaxes[diffMaxes<argMax]); #Location of the POI
-            return [diffMax, Arr1D[argMax] - Arr1D[diffMax]];
+            return [float('nan'), float('nan')];
     
     def histogram(self, distances, numbins):
         """
@@ -248,40 +251,42 @@ class DataAcqusition():
         output_array = 3d array of flattened image stack
         """
         dis = 100;
+        order = 5;
         #GET FIRST PEAKS
         zs = np.ones([image_array.shape[0],image_array.shape[1]])* float('nan');
         
         for x in range(0, image_array.shape[0]):
             for y in range(0, image_array.shape[1]):
-                Maxes = signal.argrelmax(image_array[x,y,:], order=5)[0];
-                difMaxes = signal.argrelmax(np.diff(image_array[x,y,:]), order=5)[0];
+                Maxes = signal.argrelmax(image_array[x,y,:], order=order)[0];
+                difMaxes = signal.argrelmax(np.diff(image_array[x,y,:]), order=order)[0];              
                 if Maxes.shape[0] > 0:
                     zs[x,y], nm = self.__detHM(Maxes[0], difMaxes, image_array[x,y,:]);
         
         grad = np.gradient(zs);
         output_array = np.zeros([image_array.shape[0], image_array.shape[1], dis]);
+        print('done upa');
         
         #Place in new array 
         for x in range(0, image_array.shape[0]):
             for y in range(0, image_array.shape[1]):
-                dx, dy, dz = grad[0][x,y], grad[1][x,y], -1;
+                dx, dy, dz = grad[0][x,y], grad[1][x,y], -1.;
                 unit_dis = sqrt(dx**2+dy**2+dz**2);
                 m = 20./unit_dis
-                x0, y0, z0 = x - m*dx, y - m*dy, z - m*dz;
+                x0, y0, z0 = x + m*dx, y + m*dy, zs[x,y] + m*dz;
                 m = (dis-20.)/unit_dis
-                x1, y1, z1 = x + m*dx, y + m*dy, z + m*dz;
+                x1, y1, z1 = x - m*dx, y - m*dy, zs[x,y] - m*dz;
                 xi = np.linspace(x0, x1, dis); 
                 yi = np.linspace(y0, y1, dis);
                 zj = np.linspace(z0, z1, dis);
                 
-                output_array[x,y,:] = ndimage.map_coordinates(image_array, np.vstack((xi,yi,zj)));
+                output_array[x,y,:] = ndimage.map_coordinates(image_array, np.vstack((xi,yi,zj)), prefilter=False);
         
         return output_array;
 
-ip = ImagePrep()     
+"""ip = ImagePrep()     
 #im = ip.importDiacom("Y:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[128,128,150])
 im = ip.importDiacom("//home//current//Au_Aaron//06-Guinea Pig OCT//Raw Data//AA-01046-N13_Abd_Ear-032416//N13Ear//PAT1//20160324//2_OCT",[1024,1024,300])
 img = ip.gaussFilter(im, [5,5,5])
 
 da = DataAcqusition()
-oa = da.flattenFP(img)
+oa = da.flattenFP(img)"""
