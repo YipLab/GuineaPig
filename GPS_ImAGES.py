@@ -60,6 +60,30 @@ class ImagePrep():
         else:
             print("importDiacom fail, no images");
     
+    def testLayer(self, const_x, const_y, shape):
+        """
+        Creates a single 'continuous' plane based on the given parameters
+        anything in the z direction that goes close to 5 and max_z-5 becomes 5 and max_z-5 respectively
+        INPUTS:
+        const_x = array of constants for the x axis such that [a,b, ..., n] = ax + bx^2 + ... + nx^
+        const_y = array of constants for the y axis MAKE SURE THEY ARE THE SAME SIZE!
+        """
+        
+        x, y = np.meshgrid(range(0,shape[0]), range(0,shape[1]));
+        i = 1;
+        z = np.zeros(shape[0:2]);
+        for a, b in zip(const_x, const_y):
+            z = a*x**i + b*y**i + z;
+            i += 1;
+        z = (z-np.min(z)+5)/(np.max(z) - np.min(z))*(shape[2]-10)
+        
+        output = np.zeros(shape);
+        for x in range(0,shape[0]):
+            for y in range(0,shape[1]):
+                output[x,y,z[x,y]] = 255;
+        
+        return output;
+    
     def gaussFilter(self, array, sig):
         """
         Creates a gaussian filter of 3d array
@@ -248,6 +272,7 @@ class DataAcqusition():
         INPUT:
         image_array = 3d array of image stack
         OUTPUT:
+        fp = 3d array of first peaks, value of 255 at each peak
         output_array = 3d array of flattened image stack
         """
         dis = 100;
@@ -264,6 +289,7 @@ class DataAcqusition():
         
         grad = np.gradient(zs);
         output_array = np.zeros([image_array.shape[0], image_array.shape[1], dis]);
+        #fp = np.zeros([image_array.shape[0], image_array.shape[1], np.nanmax(zs)-np.nanmin(zs) + 10]);
         print('done upa');
         
         #Place in new array 
@@ -279,14 +305,31 @@ class DataAcqusition():
                 yi = np.linspace(y0, y1, dis);
                 zj = np.linspace(z0, z1, dis);
                 
-                output_array[x,y,:] = ndimage.map_coordinates(image_array, np.vstack((xi,yi,zj)), prefilter=False);
-        
-        return output_array;
+                if grad[0][x,y] <= 3. and grad[0][x,y] >= -3. and grad[1][x,y] <= 3. and grad[1][x,y]>= -3. and not np.isnan(zs[x,y]):
+                    output_array[x,y,:] = ndimage.map_coordinates(image_array, np.vstack((xi,yi,zj)), prefilter=False);
+                    #fp[x,y,zs[x,y]+5] = 255;                
+                
+        return [zs, output_array, grad];
 
-"""ip = ImagePrep()     
-#im = ip.importDiacom("Y:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[128,128,150])
-im = ip.importDiacom("//home//current//Au_Aaron//06-Guinea Pig OCT//Raw Data//AA-01046-N13_Abd_Ear-032416//N13Ear//PAT1//20160324//2_OCT",[1024,1024,300])
-img = ip.gaussFilter(im, [5,5,5])
-
+ip = ImagePrep()
 da = DataAcqusition()
-oa = da.flattenFP(img)"""
+
+#im = ip.importDiacom("Y:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[128,128,150])
+#im = ip.importDiacom("//home//yipgroup//Current//Au_Aaron//06-Guinea Pig OCT//Raw Data//AA-01046-N13_Abd_Ear-032416//N13Ear//PAT1//20160324//2_OCT",[1024,1024,300])
+#img = ip.gaussFilter(im, [10,10,10])
+
+"""img = tifffile.imread("/home/yipgroup/image_store/Au_Aaron/DoG/G8-G14.tif");
+Start_X = 125;
+Start_Y = 625;
+img = np.transpose(img[:,Start_X:Start_X+256,Start_Y:Start_Y+256]);"""
+
+img = ip.testLayer([5,10,20],[20,10,5],[256,256,256])
+img2 = ip.gaussFilter(img, [5,5,5])
+
+[fp, oa, grad] = da.flattenFP(img2)
+
+"""ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/flattened.tiff", oa);
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/fp.tiff", fp);
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img.tiff", img)
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/gradx.tiff", grad[0]);
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/grady.tiff", grad[1]);"""
