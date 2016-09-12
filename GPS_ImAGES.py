@@ -18,6 +18,7 @@ import scipy.ndimage as ndimage
 from scipy import signal;
 import time
 import tifffile
+import bisect
 
 class ImagePrep():
     #All Postprocessing Algorithms Go Here
@@ -79,7 +80,7 @@ class ImagePrep():
         
         output = np.zeros(shape);
         for x in range(0,shape[0]):
-            for y in range(0,shape[1]):
+             for y in range(0,shape[1]):
                 output[x,y,z[x,y]] = 255;
         
         return output;
@@ -131,7 +132,7 @@ class DataAcqusition():
     #All Data Acqusition Algorithms Go Here
     def __none(self):
         print "place holder";
-    def max1d(self, Arr1D, x, y, j, Pk_Thres):
+    def max1d(self, Arr1D, x, y, j, Pk_Thres=0.1):
         """
         Determine the First Peak and distance of all following peaks afterwards
         INPUTS:
@@ -182,6 +183,7 @@ class DataAcqusition():
         Loc = [];
         Amp = [];
         js = [];
+        Maxe = [];
         
         #Arr1D[Arr1D < np.max(Arr1D) * Thres] = np.max(Arr1D) * Thres;
         Maxes = signal.argrelmax(Arr1D, order=5)[0];
@@ -196,19 +198,30 @@ class DataAcqusition():
         if Maxes.shape[0] > 1:
           l = True;
           k = 0;
-          while l:
+          """while l:
               FP, temp = self.__detHM(Maxes[k], difMaxes, Arr1D);
               if not np.isnan(FP):
                   l = False; #exit loop
               elif k == (Maxes.shape[0] - 1):
                   l = False; #too big
-              k += 1;
+              k += 1;"""
           for i in range(k, Maxes.shape[0]):
-              tLoc, tAmp = self.__detHM(Maxes[i], difMaxes, Arr1D);
-              if not np.isnan(tLoc):
+              tLoc, tAmp, tMax = self.__detHM(Maxes[i], difMaxes, Arr1D);
+              """if not np.isnan(tLoc):
                   Loc.append(tLoc - FP);
                   Amp.append(tAmp);
+                  js.append(j);"""
+              if not np.isnan(tLoc):
+                  Loc.append(tLoc);
+                  Amp.append(tAmp);
                   js.append(j);
+                  Maxe.append(tMax);
+          ampMax = np.argmax(Maxe);
+          FP = Loc[ampMax];
+          del Loc[:ampMax+1];
+          Loc[:] = [x - FP for x in Loc];
+          del Amp[:ampMax+1];
+          del js[:ampMax+1];
         
         Dis = np.array([js, Loc, Amp]).T;
         
@@ -223,12 +236,13 @@ class DataAcqusition():
         """
         if diffMaxes.shape[0] > 0:
             if argMax < diffMaxes[0]:
-                return [float('nan'), float('nan')];
+                return [float('nan'), float('nan'), float('nan')];
             else:
-                diffMax = np.max(diffMaxes[diffMaxes<argMax]); #Location of the POI
-                return [diffMax, Arr1D[argMax] - Arr1D[diffMax]];
+                #diffMax = np.max(diffMaxes[diffMaxes<argMax]); #Location of the POI
+                diffMax = diffMaxes[bisect.bisect_left(diffMaxes, argMax) - 1];
+                return [diffMax, Arr1D[argMax] - Arr1D[diffMax], Arr1D[argMax]];
         else:
-            return [float('nan'), float('nan')];
+            return [float('nan'), float('nan'), float('nan')];
     
     def histogram(self, distances, numbins):
         """
@@ -282,10 +296,9 @@ class DataAcqusition():
         
         for x in range(0, image_array.shape[0]):
             for y in range(0, image_array.shape[1]):
-                Maxes = signal.argrelmax(image_array[x,y,:], order=order)[0];
-                difMaxes = signal.argrelmax(np.diff(image_array[x,y,:]), order=order)[0];              
-                if Maxes.shape[0] > 0:
-                    zs[x,y], nm = self.__detHM(Maxes[0], difMaxes, image_array[x,y,:]);
+                fp, nm = self.halfMax1d(image_array[x,y],x,y,0);
+                #fp, nm = self.max1d(image_array[x,y], x, y, 0);
+                zs[x,y] = fp[2];
         
         grad = np.gradient(zs);
         output_array = np.zeros([image_array.shape[0], image_array.shape[1], dis]);
@@ -305,7 +318,7 @@ class DataAcqusition():
                 yi = np.linspace(y0, y1, dis);
                 zj = np.linspace(z0, z1, dis);
                 
-                if grad[0][x,y] <= 3. and grad[0][x,y] >= -3. and grad[1][x,y] <= 3. and grad[1][x,y]>= -3. and not np.isnan(zs[x,y]):
+                if grad[0][x,y] <= 10. and grad[0][x,y] >= -10. and grad[1][x,y] <= 10. and grad[1][x,y]>= -10. and not np.isnan(zs[x,y]):
                     output_array[x,y,:] = ndimage.map_coordinates(image_array, np.vstack((xi,yi,zj)), prefilter=False);
                     #fp[x,y,zs[x,y]+5] = 255;                
                 
@@ -314,22 +327,30 @@ class DataAcqusition():
 ip = ImagePrep()
 da = DataAcqusition()
 
-#im = ip.importDiacom("Y:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[128,128,150])
+#im = ip.importDiacom("Z:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[256,356,150]);
 #im = ip.importDiacom("//home//yipgroup//Current//Au_Aaron//06-Guinea Pig OCT//Raw Data//AA-01046-N13_Abd_Ear-032416//N13Ear//PAT1//20160324//2_OCT",[1024,1024,300])
-#img = ip.gaussFilter(im, [10,10,10])
+#img = ip.gaussFilter(im, [10,10,10]);
 
-"""img = tifffile.imread("/home/yipgroup/image_store/Au_Aaron/DoG/G8-G14.tif");
-Start_X = 125;
+img = tifffile.imread("/home/yipgroup/image_store/Au_Aaron/DoG/G8-G14-1.tif");
+img = np.transpose(img);
+"""Start_X = 125;
 Start_Y = 625;
-img = np.transpose(img[:,Start_X:Start_X+256,Start_Y:Start_Y+256]);"""
+img = np.transpose(img[:,Start_Y:Start_Y+256,Start_X:Start_X+256]);"""
 
-img = ip.testLayer([5,10,20],[20,10,5],[256,256,256])
-img2 = ip.gaussFilter(img, [5,5,5])
+#img = ip.testLayer([5,10,20],[20,10,5],[256,256,256])
+#img2 = ip.gaussFilter(img, [5,5,5])
 
-[fp, oa, grad] = da.flattenFP(img2)
+[fp, oa, grad] = da.flattenFP(img)
 
-"""ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/flattened.tiff", oa);
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img.tiff", img, np.float32);
+
+for x in range(0,oa.shape[0]):
+    for y in range(0, oa.shape[1]):
+        img[x,y,fp[x,y]] = 255.;
+
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/flattened.tiff", oa, np.float32);
 ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/fp.tiff", fp);
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img.tiff", img)
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img_layer.tiff", img, np.float32);
 ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/gradx.tiff", grad[0]);
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/grady.tiff", grad[1]);"""
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/grady.tiff", grad[1]);
+print("done all")
