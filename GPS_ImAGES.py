@@ -114,7 +114,22 @@ class ImagePrep():
         LargeArray = ndimage.gaussian_filter(array, sigma=(large_psf[0], large_psf[1], large_psf[2]), order=0);
         DoGArray = SmallArray - LargeArray;
         print("dogFilter done, time elapsed :" + str(time.clock()-start));
-        return DoGArray;    
+        return DoGArray;
+        
+    def map_peaks(self, fp, dis):
+        """
+        Creates a 3d array of the location of peaks
+        INPUTS:
+        fp, dis = pickle arrays
+        OUTPUS:
+        3d array of peaks
+        """
+        plots = np.zeros([max(fp['x'])+1, max(fp['y']+1), 300]);
+        for f in fp.index:
+            for p in dis[dis['fp_id']==f].iterrows():
+                plots[fp.loc[f]['x'], fp.loc[f]['y'], p[1]['loc']]=255;
+        
+        return plots;
     
     def saveAsTiff(self, file_name, array, types=np.int8):
         """
@@ -127,6 +142,45 @@ class ImagePrep():
         none
         """
         tifffile.imsave(file_name, array.astype(types));
+    
+    def saveAsPickle(self, image, name):
+        """
+        Extracts the FP and Dis and saves it in a pickle DF format
+        INPUTS:
+        image = 3d array representing image
+        OUTPUTS:
+        none
+        """
+        Col_FP = ['x','y','z'];
+        Col_Dis = ['fp_id', 'loc', 'amp'];
+        i = 0;
+  
+        #DF_FP = pd.DataFrame(columns=Col_FP);
+        #DF_Dis = pd.DataFrame(columns=Col_Dis);
+        fps = np.array([[0,0,0]]);
+        dis = np.array([[0,0,0]]);
+        counter = 0;
+
+        for x in range(0,image.shape[0]):
+            for y in range(0, image.shape[1]):
+                #fp, dist = da.halfMax1d(image[x,y,:], x, y, i);
+                fp, dist = da.peaks(image[x,y,:],x,y,i);
+                #DF_FP = DF_FP.append(pd.DataFrame([fp], columns = Col_FP), ignore_index = True);
+                if not fp==None:                
+                    fps = np.insert(fps,len(fps),fp,axis=0);
+                    if dist == None:
+                        counter += 1;
+                    else:
+                        #DF_Dis = DF_Dis.append(pd.DataFrame(dist, columns = Col_Dis), ignore_index = True);
+                        dis = np.insert(dis, len(dis),dist, axis=0);
+                    i += 1;
+        
+        DF_FP = pd.DataFrame(data=fps, columns=Col_FP);
+        DF_Dis = pd.DataFrame(data=dis, columns=Col_Dis);
+    
+        DF_FP.to_pickle(name+"FP_pd");
+        DF_Dis.to_pickle(name+"Dis_pd");
+        
 
 class DataAcqusition():
     #All Data Acqusition Algorithms Go Here
@@ -192,7 +246,7 @@ class DataAcqusition():
         if Maxes.shape[0] <= 0:
           FP = float('nan');
         if Maxes.shape[0] == 1:
-          [FP, temp] = self.__detHM(Maxes[0], difMaxes, Arr1D);
+          [FP, temp, nahh] = self.__detHM(Maxes[0], difMaxes, Arr1D);
           Loc = [float('nan')];
           Amp = [float('nan')];
         if Maxes.shape[0] > 1:
@@ -244,6 +298,28 @@ class DataAcqusition():
         else:
             return [float('nan'), float('nan'), float('nan')];
     
+    def peaks(self, Arr1D, x, y , j):
+        #Determine FP
+        difMaxes = signal.argrelmax(np.diff(Arr1D), order=5)[0]; #Use this to determine the number of half maximums
+        if len(difMaxes) > 0:        
+            FP = difMaxes[bisect.bisect_left(difMaxes, Arr1D.argmax()) - 1]; #location of FP, by looking for left half_max from largest peak
+        
+            FP_ind = np.where(difMaxes==FP)[0][0]; #location of FP wrt difMaxes
+            dis_np = None;
+
+            if len(difMaxes) > FP_ind + 1: #has distances after FP
+                diffs = difMaxes[FP_ind:];
+                dis_np = np.zeros([len(diffs)-1, 3]);        
+            
+                for i in range(len(diffs)-1):
+                    dis_np[i,0] = j; #index
+                    dis_np[i,1] = diffs[i+1] - FP; #z-difference
+                    dis_np[i,2] = Arr1D[diffs[i+1]]/Arr1D[FP];#amplitude/Max_amplitude
+        
+            return [x, y, FP], dis_np;
+        else: 
+            return None, None
+    
     def histogram(self, distances, numbins):
         """
         Create histogram of distances
@@ -254,7 +330,7 @@ class DataAcqusition():
         n = array of counts
         bins = edges of bins
         """
-        n, bins, temp = plt.hist(distances['loc']);
+        n, bins, temp = plt.hist(distances['loc'], bins=numbins);
         return n, bins;
     
     def coverage(self, fps, distances, upr_bnd, lwr_bnd):
@@ -267,13 +343,16 @@ class DataAcqusition():
         OUTPUT:
         coverage = 2d array of counts at the respective (x,y) coordinate
         """
-        temp_dis = dis.ix[(distances['loc'] <= upr_bnd) & (distances['loc'] >= lwr_bnd)];
+    
+        temp_dis = distances.ix[(distances['loc'] <= upr_bnd) & (distances['loc'] >= lwr_bnd)];
 
         coverage = np.zeros([int(max(fps['x']))+1, int(max(fps['y']))+1]);
         
+        i = 0;
         for row_dis in temp_dis.iterrows():
-            row_fp = fps.loc[row_dis[1]['fp_id']];
+            row_fp = fps.loc[int(row_dis[1]['fp_id'])];
             coverage[int(row_fp['x']), int(row_fp['y'])] = coverage[int(row_fp['x']), int(row_fp['y'])] + 1;
+            i+=1;            
             
         if coverage.max() > 0:
             coverage = coverage / coverage.max() * 255;
@@ -289,7 +368,7 @@ class DataAcqusition():
         fp = 3d array of first peaks, value of 255 at each peak
         output_array = 3d array of flattened image stack
         """
-        dis = 100;
+        dis = 200;
         order = 5;
         #GET FIRST PEAKS
         zs = np.ones([image_array.shape[0],image_array.shape[1]])* float('nan');
@@ -324,7 +403,7 @@ class DataAcqusition():
                 
         return [zs, output_array, grad];
 
-ip = ImagePrep()
+"""ip = ImagePrep()
 da = DataAcqusition()
 
 #im = ip.importDiacom("Z:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[256,356,150]);
@@ -333,24 +412,33 @@ da = DataAcqusition()
 
 img = tifffile.imread("/home/yipgroup/image_store/Au_Aaron/DoG/G8-G14-1.tif");
 img = np.transpose(img);
-"""Start_X = 125;
+Start_X = 125;
 Start_Y = 625;
-img = np.transpose(img[:,Start_Y:Start_Y+256,Start_X:Start_X+256]);"""
+img = np.transpose(img[:,Start_Y:Start_Y+256,Start_X:Start_X+256]);
 
 #img = ip.testLayer([5,10,20],[20,10,5],[256,256,256])
 #img2 = ip.gaussFilter(img, [5,5,5])
 
-[fp, oa, grad] = da.flattenFP(img)
+[fps, oa, grad] = da.flattenFP(img)
 
 ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img.tiff", img, np.float32);
 
+ip.saveAsPickle(img, "/home/yipgroup/image_store/Au_Aaron/DoG//img");
+
 for x in range(0,oa.shape[0]):
     for y in range(0, oa.shape[1]):
-        img[x,y,fp[x,y]] = 255.;
+        img[x,y,fps[x,y]] = 255.;
 
 ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/flattened.tiff", oa, np.float32);
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/fp.tiff", fp);
+ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/fp.tiff", fps);
 ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img_layer.tiff", img, np.float32);
 ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/gradx.tiff", grad[0]);
 ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/grady.tiff", grad[1]);
-print("done all")
+
+ip.saveAsPickle(oa, "/home/yipgroup/image_store/Au_Aaron/DoG//layer");
+        
+print("done all")"""
+"""da = DataAcqusition();
+ip = ImagePrep();
+pic = tifffile.imread("C:\Users\Aaron Au\Desktop\with_pandas\\flattened.tiff")
+ip.saveAsPickle(pic, "C:\Users\Aaron Au\Desktop\with_pandas\\test")"""
