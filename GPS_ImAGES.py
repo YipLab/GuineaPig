@@ -61,27 +61,37 @@ class ImagePrep():
         else:
             print("importDiacom fail, no images");
     
-    def testLayer(self, const_x, const_y, shape):
+    def testLayers(self, const_x, const_y, d, shape):
         """
         Creates a single 'continuous' plane based on the given parameters
         anything in the z direction that goes close to 5 and max_z-5 becomes 5 and max_z-5 respectively
         INPUTS:
         const_x = array of constants for the x axis such that [a,b, ..., n] = ax + bx^2 + ... + nx^
         const_y = array of constants for the y axis MAKE SURE THEY ARE THE SAME SIZE!
+        d = distance between layers
         """
         
         x, y = np.meshgrid(range(0,shape[0]), range(0,shape[1]));
         i = 1;
-        z = np.zeros(shape[0:2]);
+        z = np.zeros(shape);
+        dx = np.zeros(shape);
+        dy = np.zeros(shape);
         for a, b in zip(const_x, const_y):
             z = a*x**i + b*y**i + z;
+            dx = i*a*(x**(i-1)) + dx;
+            dy = i*b*(y**(i-1)) + dy;
             i += 1;
-        z = (z-np.min(z)+5)/(np.max(z) - np.min(z))*(shape[2]-10)
         
-        output = np.zeros(shape);
-        for x in range(0,shape[0]):
-             for y in range(0,shape[1]):
-                output[x,y,z[x,y]] = 255;
+        m = d/np.sqrt(dx**2 + dy**2 + 1**2);        
+        
+        output = np.zeros([shape[0],shape[1], z.max()+d+15]);
+        for xi in range(0,shape[0]):
+             for yi in range(0,shape[1]):
+                output[xi,yi,z[xi,yi]+5] = 255;
+                sx = xi-dy[xi,yi]*m[xi,yi];
+                sy = yi-dx[xi,yi]*m[xi,yi];
+                if sx >= 0 and sx < shape[0] and sy >= 0 and sy <= shape[1]:
+                    output[sx, sy, z[xi,yi]+m[xi,yi]] = 125;
         
         return output;
     
@@ -359,6 +369,33 @@ class DataAcqusition():
         
         return coverage;
     
+    def second_peak_difference(self, fps1, distances1, fps2, distances2):
+        """
+        Determines height of sp1 and subtracts it from the height of sp2 .
+        INPUT:
+        fps1, distances1, fps2, distances2 = are all panda tables of first peak and distances
+        OUTPUT:
+        difference = 2d array of differences sp2 - sp1
+        """
+        sp1 = np.ones([max(fps1['x'])+1,max(fps1['y'])+1])*100
+        sp2 = np.ones([max(fps1['x'])+1,max(fps1['y'])+1])*200
+        
+        for x in range(max(fps1.x)):
+            for y in range(max(fps1.y)):
+                i = fps1[(fps1.x == x) & (fps1.y == y)].index;
+                j = fps2[(fps2.x == x) & (fps2.y == y)].index;
+                
+                if len(i) == 1: 
+                    dis = distances1[distances1.fp_id == i[0]]["loc"]
+                    if len(dis) > 0:
+                        sp1[x,y] = min(dis);
+                if len(j) == 1: 
+                    dis = distances2[distances2.fp_id == j[0]]["loc"]
+                    if len(dis) > 0:
+                        sp2[x,y] = min(dis);
+        
+        return sp2-sp1;
+    
     def flattenFP(self, image_array):
         """
         Creates an image with flattened and spliced
@@ -403,14 +440,14 @@ class DataAcqusition():
                 
         return [zs, output_array, grad];
 
-"""ip = ImagePrep()
+ip = ImagePrep()
 da = DataAcqusition()
 
-#im = ip.importDiacom("Z:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[256,356,150]);
+"""#im = ip.importDiacom("Z:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[256,356,150]);
 #im = ip.importDiacom("//home//yipgroup//Current//Au_Aaron//06-Guinea Pig OCT//Raw Data//AA-01046-N13_Abd_Ear-032416//N13Ear//PAT1//20160324//2_OCT",[1024,1024,300])
 #img = ip.gaussFilter(im, [10,10,10]);
 
-img = tifffile.imread("/home/yipgroup/image_store/Au_Aaron/DoG/G8-G14-1.tif");
+#img = tifffile.imread("/home/yipgroup/image_store/Au_Aaron/DoG/G8-G14-1.tif");
 img = np.transpose(img);
 Start_X = 125;
 Start_Y = 625;
@@ -419,23 +456,25 @@ img = np.transpose(img[:,Start_Y:Start_Y+256,Start_X:Start_X+256]);
 #img = ip.testLayer([5,10,20],[20,10,5],[256,256,256])
 #img2 = ip.gaussFilter(img, [5,5,5])
 
+img = tifffile.imread("C:\Users\Aaron Au\Desktop\with_pandas\img.tiff")
+
 [fps, oa, grad] = da.flattenFP(img)
 
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img.tiff", img, np.float32);
+#ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img.tiff", img, np.float32);
 
-ip.saveAsPickle(img, "/home/yipgroup/image_store/Au_Aaron/DoG//img");
+ip.saveAsPickle(img, "C:\Users\Aaron Au\Desktop\with_pandas\\img_");
 
 for x in range(0,oa.shape[0]):
     for y in range(0, oa.shape[1]):
         img[x,y,fps[x,y]] = 255.;
 
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/flattened.tiff", oa, np.float32);
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/fp.tiff", fps);
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/img_layer.tiff", img, np.float32);
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/gradx.tiff", grad[0]);
-ip.saveAsTiff("/home/yipgroup/image_store/Au_Aaron/DoG/grady.tiff", grad[1]);
+ip.saveAsTiff("C:\Users\Aaron Au\Desktop\with_pandas\\flattened.tiff", oa, np.float32);
+ip.saveAsTiff("C:\Users\Aaron Au\Desktop\with_pandas\\fp.tiff", fps);
+ip.saveAsTiff("C:\Users\Aaron Au\Desktop\with_pandas\\img_layer.tiff", img, np.float32);
+ip.saveAsTiff("C:\Users\Aaron Au\Desktop\with_pandas\\gradx.tiff", grad[0]);
+ip.saveAsTiff("C:\Users\Aaron Au\Desktop\with_pandas\\grady.tiff", grad[1]);
 
-ip.saveAsPickle(oa, "/home/yipgroup/image_store/Au_Aaron/DoG//layer");
+ip.saveAsPickle(oa, "C:\Users\Aaron Au\Desktop\with_pandas\\layer_");
         
 print("done all")"""
 """da = DataAcqusition();
