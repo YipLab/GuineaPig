@@ -61,7 +61,7 @@ class ImagePrep():
         else:
             print("importDiacom fail, no images");
     
-    def testLayers(self, const_x, const_y, d, shape):
+    def testLayers(self, const_x, const_y, d, shape, gaus=False):
         """
         Creates a single 'continuous' plane based on the given parameters
         anything in the z direction that goes close to 5 and max_z-5 becomes 5 and max_z-5 respectively
@@ -70,7 +70,14 @@ class ImagePrep():
         const_y = array of constants for the y axis MAKE SURE THEY ARE THE SAME SIZE!
         d = distance between layers
         """
-        
+        g = np.zeros(shape);
+        if (gaus == True):
+            gx = signal.gaussian(shape[0], std=shape[0]/9);
+            gy = signal.gaussian(shape[1], std=shape[1]/9);
+            gm = np.meshgrid(gx, gy);
+            g = gm[0]*gm[1]*d;
+                        
+            
         x, y = np.meshgrid(range(0,shape[0]), range(0,shape[1]));
         i = 1;
         z = np.zeros(shape);
@@ -82,9 +89,9 @@ class ImagePrep():
             dy = i*b*(y**(i-1)) + dy;
             i += 1;
         
-        m = d/np.sqrt(dx**2 + dy**2 + 1**2);        
+        m = (d+g)/np.sqrt(dx**2 + dy**2 + 1**2);        
         
-        output = np.zeros([shape[0],shape[1], z.max()+d+15]);
+        output = np.zeros([shape[0],shape[1], z.max()+2*d+15]);
         for xi in range(0,shape[0]):
              for yi in range(0,shape[1]):
                 output[xi,yi,z[xi,yi]+5] = 255;
@@ -416,7 +423,7 @@ class DataAcqusition():
                 #fp, nm = self.max1d(image_array[x,y], x, y, 0);
                 zs[x,y] = fp[2];
         
-        grad = np.gradient(zs);
+        grad = np.gradient(zs.astype(float));
         output_array = np.zeros([image_array.shape[0], image_array.shape[1], dis]);
         #fp = np.zeros([image_array.shape[0], image_array.shape[1], np.nanmax(zs)-np.nanmin(zs) + 10]);
         print('done upa');
