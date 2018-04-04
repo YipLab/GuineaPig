@@ -197,6 +197,37 @@ class ImagePrep():
     
         DF_FP.to_pickle(name+"FP_pd");
         DF_Dis.to_pickle(name+"Dis_pd");
+    
+    def saveAsTiff_Dis(self, image, name, types=np.int8):
+        """
+        Extracts the FP and Dis and saves it in a pickle DF format
+        INPUTS:
+        image = 3d array representing image
+        OUTPUTS:
+        none
+        """
+        i = 0;
+
+        fps = np.zeros([image.shape([0]), image.shape([1])]);
+        dis = np.zeros([image.shape([0]), image.shape([1])]);
+        counter = 0;
+
+        for x in range(0,image.shape[0]):
+            for y in range(0, image.shape[1]):
+                #fp, dist = da.halfMax1d(image[x,y,:], x, y, i);
+                fp, dist = da.peaks(image[x,y,:],x,y,i);
+                #DF_FP = DF_FP.append(pd.DataFrame([fp], columns = Col_FP), ignore_index = True);
+                if not fp==None:                
+                    fps[x,y] = fp;
+                    if dist == None:
+                        counter += 1;
+                    else:
+                        dis[x,y] = dist;
+                    i += 1;
+
+        tifffile.imsave(name+'_fps.tiff', fps.astype(types));
+        tifffile.imsave(name+'_dis.tiff', fps.astype(types));
+        return fps, dis;
         
 
 class DataAcqusition():
@@ -448,13 +479,68 @@ class DataAcqusition():
         return [zs, output_array, grad];
 
 ip = ImagePrep()
-da = DataAcqusition()
+da = DataAcqus
 
-"""#im = ip.importDiacom("Z:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[256,356,150]);
+#Import Image (Windows or Linux)
+#im = ip.importDiacom("Z:\\Au_Aaron\\06-Guinea Pig OCT\\Raw Data\\AA-01046-N13_Abd_Ear-032416\\N13Ear\\PAT1\\20160324\\2_OCT",[256,356,150]);
 #im = ip.importDiacom("//home//yipgroup//Current//Au_Aaron//06-Guinea Pig OCT//Raw Data//AA-01046-N13_Abd_Ear-032416//N13Ear//PAT1//20160324//2_OCT",[1024,1024,300])
-#img = ip.gaussFilter(im, [10,10,10]);
 
-#img = tifffile.imread("/home/yipgroup/image_store/Au_Aaron/DoG/G8-G14-1.tif");
+#Perform Gaussian Images
+t_s =time.clock();
+small_psf = [8,8,8];
+large_psf = [14, 14, 14];
+small_gauss = ip.gaussFilter(im, small_psf);
+large_guass = ip.gaussFilter(im, large_psf);
+t_g = time.clock();
+im_dog = ip.dogFilter(im, small_psf, large_psf);
+t_dog = time.clock();
+ip.saveAsTiff(small_gauss, 'smallGauss.tiff', np.float32);
+ip.saveAsTiff(large_gauss, 'largeGuass.tiff', np.float32);
+ip.saveAsTiff(im_dog, 'DoF.tiff', np.float32);
+t_save = time.clock();
+
+print("Gauss Filter: {}, DoG: {}, Save: {}, Total: {}".format(t_g-t_s, t_dog-t_g, t_save-t_dog, t_save-t_s));
+
+#Acquire two layers
+t_s2 = time.clock();
+fps, dis = ip.saveAsTiff_Dis(im_dog, 'Unflattened', np.float32);
+t_2l = time.clock();
+#Overlay fps and dis 
+unflat_overlay = im;
+for x in range(len(im.shape[0])):
+	for y in range(len(im.shape[1])):
+		unflat_overlay[x,y,fps[x,y]] = 255;
+		unflat_overlay[x,y,dis[x,y]] = 255;
+t_o = time.clock();
+ip.saveAsTiff(unflat_overlay, 'unflat_overlay.tiff', np.float32);
+t_save = time.clock();
+
+print("Layers: {}, Overlay: {}, Save: {}, Total: {}".format(t_2l-t_s2, t_o-t_2l, t_save-t_o, t_save-t_s2));
+
+#Flatten
+t_s2 = time.clock();
+[fps, oa, grad] = da.flattenFP(im_dog);
+#Acquire two layers
+t_f = time.clock();
+fps, dis = ip.saveAsTiff_Dis(oa, 'Flattened', np.float32);
+t_2l = time.clock();
+#Overlay fps and dis
+flat_overlay = oa;
+for x in range(len(oa.shape[0])):
+	for y in range(len(oa.shape[1])):
+		flat_overlay[x,y,fps[x,y]] = 255;
+		flat_overlay[x,y,dis[x,y]] = 255;
+t_o = time.clock();
+ip.saveAsTiff('flat.tiff', oa, np.float32);
+ip.saveAsTiff('flat_overlay.tiff', flat_overlay, np.float32);
+ip.saveAsTiff("gradx.tiff", grad[0]);
+ip.saveAsTiff("grady.tiff", grad[1]);
+t_save = time.clock();
+
+print("Flatten: {}, Layers: {}, Overlay: {}, Save: {}, Total {}".format(t_f-ts2, t_2l-t_f, t_o-t_2l, t_save-t_o, t_save-t_s2));
+print("FINISHED: {}", format(t_save-t_s));
+
+'''#img = tifffile.imread("/home/yipgroup/image_store/Au_Aaron/DoG/G8-G14-1.tif");
 img = np.transpose(img);
 Start_X = 125;
 Start_Y = 625;
